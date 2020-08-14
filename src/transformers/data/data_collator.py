@@ -57,6 +57,7 @@ def default_data_collator(features: List[InputDataClass]) -> Dict[str, torch.Ten
     # Handling of all other possible keys.
     # Again, we will use the first element to figure out which key/values are not None for this model.
     for k, v in first.items():
+        if k in ('guid'): continue
         if k not in ("label", "label_ids") and v is not None and not isinstance(v, str):
             if isinstance(v, torch.Tensor):
                 batch[k] = torch.stack([f[k] for f in features])
