@@ -67,20 +67,18 @@ class InputFeatures:
     input_ids: List[int]
     attention_mask: Optional[List[int]] = None
     token_type_ids: Optional[List[int]] = None
-    label: Optional[Union[int, float]] = None
+    label: Optional[List[int]] = None
 
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(asdict(self)) + "\n"
-
 
 class Split(Enum):
     train = "train"
     dev = "dev"
     test = "test"
 
-
-class SuperGlueDataset(Dataset):
+class T5GlueDataset(Dataset):
     """
     This will be superseded by a framework-agnostic approach
     soon.
@@ -121,7 +119,7 @@ class SuperGlueDataset(Dataset):
                 else:
                     examples = processor.get_train_examples(data_dir)
                 logger.info("Training examples: %s", len(examples))
-                self.features = convert_examples_to_features(examples, tokenizer, max_seq_length, label_list=label_list,)
+                self.features = convert_examples_to_features(examples, tokenizer, max_length=max_seq_length, label_list=label_list)
                 logger.info("Saving features into cached file %s", cached_features_file)
                 torch.save(self.features, cached_features_file)
 
@@ -158,9 +156,14 @@ class DataProcessor:
         with open(input_file, "r", encoding="utf-8-sig") as f:
             return [json.loads(jline) for jline in f.readlines()]
 
+    @classmethod
+    def _read_tsv(cls, input_file, quotechar=None):
+        """Reads a tab separated value file."""
+        with open(input_file, "r", encoding="utf-8-sig") as f:
+            return list(csv.reader(f, delimiter="\t", quotechar=quotechar))
 
-class BoolQProcessor(DataProcessor):
-    """Processor for the BoolQ data set (SUPERGLUE version)."""
+class CoLAProcessor(DataProcessor):
+    """Processor for the SST2 data set (T5 GLUE version)."""
 
     def get_example_from_tensor_dict(self, tensor_dict):
         """See base class."""
@@ -174,15 +177,15 @@ class BoolQProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.jsonl")))
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "train.jsonl")), "train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "val.jsonl")), "dev")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
 
     def get_test_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "test.jsonl")), "test")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
 
     def get_labels(self):
         """See base class."""
@@ -195,20 +198,20 @@ class BoolQProcessor(DataProcessor):
             if i == 0:
                 continue
             guid = "%s-%s" % (set_type, i)
-            text_a = line['passage']
-            text_b = line['question']
-            label = None if set_type == "test" else str(int(line['label']))
+            text_a = "cola sentence: " + line[3]
+            text_b = ""
+            label = None if set_type == "test" else line[1]
             examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
+
 
     def _read_jsonl(self, input_file, quotechar=None):
         """Reads a tab separated value file."""
         with open(input_file, "r", encoding="utf-8-sig") as f:
             return [json.loads(jline) for jline in f.readlines()]
 
-
-class CBProcessor(DataProcessor):
-    """Processor for the BoolQ data set (SUPERGLUE version)."""
+class SST2Processor(DataProcessor):
+    """Processor for the SST2 data set (T5 GLUE version)."""
 
     def get_example_from_tensor_dict(self, tensor_dict):
         """See base class."""
@@ -222,148 +225,40 @@ class CBProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.jsonl")))
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "train.jsonl")), "train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "val.jsonl")), "dev")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
 
     def get_test_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "test.jsonl")), "test")
-
-    def get_labels(self):
-        """See base class."""
-        return ["contradiction", "neutral", "entailment"]
-
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training, dev and test sets."""
-        examples = []
-        for (i, line) in enumerate(lines):
-            if i == 0:
-                continue
-            guid = "%s-%s" % (set_type, i)
-            text_a = line['premise']
-            text_b = line['hypothesis']
-            label = None if set_type == "test" else line['label']
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
-        return examples
-
-    def _read_jsonl(self, input_file, quotechar=None):
-        """Reads a tab separated value file."""
-        with open(input_file, "r", encoding="utf-8-sig") as f:
-            return [json.loads(jline) for jline in f.readlines()]
-            
-class RTEProcessor(DataProcessor):
-    """Processor for the BoolQ data set (SUPERGLUE version)."""
-
-    def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(
-            tensor_dict["idx"].numpy(),
-            tensor_dict["sentence1"].numpy().decode("utf-8"),
-            tensor_dict["sentence2"].numpy().decode("utf-8"),
-            str(tensor_dict["label"].numpy()),
-        )
-
-    def get_train_examples(self, data_dir):
-        """See base class."""
-        logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.jsonl")))
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "train.jsonl")), "train")
-
-    def get_dev_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "val.jsonl")), "dev")
-
-    def get_test_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "test.jsonl")), "test")
-
-    def get_labels(self):
-        """See base class."""
-        return ["entailment", "not_entailment"]
-
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training, dev and test sets."""
-        examples = []
-        for (i, line) in enumerate(lines):
-            if i == 0:
-                continue
-            guid = "%s-%s" % (set_type, i)
-            text_a = line['premise']
-            text_b = line['hypothesis']
-            label = None if set_type == "test" else line['label']
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
-        return examples
-
-    def _read_jsonl(self, input_file, quotechar=None):
-        """Reads a tab separated value file."""
-        with open(input_file, "r", encoding="utf-8-sig") as f:
-            return [json.loads(jline) for jline in f.readlines()]
-
-
-class MultiRCProcessor(DataProcessor):
-    """Processor for the SWAG data set."""
-
-    def get_train_examples(self, data_dir):
-        """See base class."""
-        logger.info("LOOKING AT {} train".format(data_dir))
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "train.jsonl")), "train")
-
-    def get_dev_examples(self, data_dir):
-        """See base class."""
-        logger.info("LOOKING AT {} dev".format(data_dir))
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "val.jsonl")), "dev")
-
-    def get_test_examples(self, data_dir):
-        """See base class."""
-        logger.info("LOOKING AT {} dev".format(data_dir))
-        raise ValueError(
-            "For swag testing, the input file does not contain a label column. It can not be tested in current code"
-            "setting!"
-        )
-        return self._create_examples(self._read_jsonl(os.path.join(data_dir, "test.jsonl")), "test")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
 
     def get_labels(self):
         """See base class."""
         return ["0", "1"]
 
-    def _read_csv(self, input_file):
-        with open(input_file, "r", encoding="utf-8") as f:
-            return list(csv.reader(f))
-
     def _create_examples(self, lines, set_type):
-        """Creates examples for the training and dev sets."""
-
+        """Creates examples for the training, dev and test sets."""
         examples = []
         for (i, line) in enumerate(lines):
             if i == 0:
                 continue
-            questions = line["passage"]["questions"]
-            passage_text = line["passage"]["text"]
-            for j, question in enumerate(questions):
-                question_text = question['question']
-                answers = question['answers']
-                for k, answer in enumerate(answers):
-                    guid = "%s-%s-%s-%s" % (set_type, i,j,k)
-                    answer_text = answer["text"]
-                    label = None if set_type == "test" else str(answer["label"])
-                    idx = answer["idx"]
-                    context = passage_text
-                    endings = answer_text
-                    examples.append(InputExample(
-                        guid=guid, 
-                        text_b=question_text + " " + endings, 
-                        text_a=context, 
-                        label=label))
+            guid = "%s-%s" % (set_type, i)
+            text_a = "sentiment: " + line[0]
+            text_b = ""
+            label = None if set_type == "test" else line[1]
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
-    
+
+
     def _read_jsonl(self, input_file, quotechar=None):
         """Reads a tab separated value file."""
         with open(input_file, "r", encoding="utf-8-sig") as f:
             return [json.loads(jline) for jline in f.readlines()]
 
-    
+
 
 def convert_examples_to_features(
     examples: List[InputExample],
@@ -377,14 +272,16 @@ def convert_examples_to_features(
         max_length = tokenizer.max_len
 
     if task is not None:
-        processor = superglue_processors[task]()
+        print (task)
+        processor = processors[task]()
         if label_list is None:
             label_list = processor.get_labels()
             logger.info("Using label list %s for task %s" % (label_list, task))
         if output_mode is None:
-            output_mode = superglue_output_modes[task]
+            output_mode = T5_glue_output_modes[task]
             logger.info("Using output mode %s for task %s" % (output_mode, task))
 
+    """
     label_map = {label: i for i, label in enumerate(label_list)}
 
     def label_from_example(example: InputExample) -> Union[int, float, None]:
@@ -397,6 +294,7 @@ def convert_examples_to_features(
         raise KeyError(output_mode)
 
     labels = [label_from_example(example) for example in examples]
+    """
 
     """
     from math import ceil
@@ -423,11 +321,21 @@ def convert_examples_to_features(
         truncation=True,
     )
 
+    batch_encoding_labels = tokenizer(
+        [(example.label) for example in examples],
+        max_length=1,
+        padding="max_length",
+        truncation=True,
+    )
+
+    #print(batch_encoding_labels)
+
     features = []
     for i in range(len(examples)):
         inputs = {k: batch_encoding[k][i] for k in batch_encoding}
+        labels = list(map(lambda x: int(x), batch_encoding_labels["input_ids"][i]))
 
-        feature = InputFeatures(**inputs, label=labels[i])
+        feature = InputFeatures(**inputs, label=labels)
         features.append(feature)
 
     for i, example in enumerate(examples[:5]):
@@ -438,25 +346,19 @@ def convert_examples_to_features(
     return features
 
 
-superglue_tasks_num_labels = {
-    "boolq": 2,
-    "cb": 3,
-    "rte": 2,
-    "multirc": 2,
+T5_glue_tasks_num_labels = {
+    "sst-2": 2,
+    "cola": 2,
 }
 
 processors = {
-    "boolq": BoolQProcessor,
-    "cb": CBProcessor,
-    "rte": RTEProcessor,
-    "multirc": MultiRCProcessor,
+    "sst-2": SST2Processor,
+    "cola": CoLAProcessor,
 }
 
-superglue_output_modes = {
-    "boolq": "classification",
-    "cb": "classification",
-    "rte": "classification",
-    "multirc": "classification",
+T5_glue_output_modes = {
+    "sst-2": "classification",
+    "cola":  "classification",
 }
 
 def simple_accuracy(preds, labels):
@@ -480,18 +382,17 @@ def multiclass_acc_and_f1(preds, labels):
         #"acc_and_f1": (acc + f1) / 2,
     }
 
-def superglue_compute_metrics(task_name, preds, labels):
+def T5_glue_compute_metrics(task_name, preds, labels):
     assert len(preds) == len(labels)
-    if task_name == "boolq":
+    if task_name == "sst-2":
         return {"acc": simple_accuracy(labels, preds)}
-    elif task_name == "cb":
-        return {"acc": multiclass_acc_and_f1(preds, labels)}
-    elif task_name == "rte":
-        return {"acc": simple_accuracy(preds, labels)}
-    elif task_name == "multirc":
-        return acc_and_f1(preds, labels)
+    if task_name == "cola":
+        return {"mcc": matthews_corrcoef(labels, preds)}
     else:
         raise KeyError(task_name)
+
+
+
 
 
 
