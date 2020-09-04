@@ -111,7 +111,7 @@ class T5GlueDataset(Dataset):
                 self.features = torch.load(cached_features_file)
             else:
                 logger.info(f"Creating features from dataset file at {data_dir}")
-                label_list = processor.get_labels()
+                #label_list = processor.get_labels()
                 if mode == Split.dev:
                     examples = processor.get_dev_examples(data_dir)
                 elif mode == Split.test:
@@ -119,7 +119,8 @@ class T5GlueDataset(Dataset):
                 else:
                     examples = processor.get_train_examples(data_dir)
                 logger.info("Training examples: %s", len(examples))
-                self.features = convert_examples_to_features(examples, tokenizer, max_length=max_seq_length, label_list=label_list)
+                #self.features = convert_examples_to_features(examples, tokenizer, max_length=max_seq_length, label_list=label_list)
+                self.features = convert_examples_to_features(examples, tokenizer, max_length=max_seq_length)
                 logger.info("Saving features into cached file %s", cached_features_file)
                 torch.save(self.features, cached_features_file)
 
@@ -258,6 +259,62 @@ class SST2Processor(DataProcessor):
         with open(input_file, "r", encoding="utf-8-sig") as f:
             return [json.loads(jline) for jline in f.readlines()]
 
+class CombinedProcessor(DataProcessor):
+    """Processor for the Combined GLUE data set (T5 GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        examples = []
+        for task in ["CoLA", "SST-2"]:
+            task_data_dir = os.path.join(data_dir, task)
+            logger.info("LOOKING AT {}".format(os.path.join(task_data_dir, "train.tsv")))
+            examples.extend(self._create_examples(self._read_tsv(os.path.join(task_data_dir, "train.tsv")), "train", task))
+        return examples
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        examples = []
+        for task in ["CoLA", "SST-2"]:
+            task_data_dir = os.path.join(data_dir, task)
+            examples.extend(self._create_examples(self._read_tsv(os.path.join(task_data_dir, "dev.tsv")), "dev", task))
+        return examples
+
+    def get_test_examples(self, data_dir):
+        """See base class."""
+        examples = []
+        for task in ["CoLA", "SST-2"]:
+            task_data_dir = os.path.join(data_dir, task)
+            examples.extend(self._create_examples(self._read_tsv(os.path.join(task_data_dir, "test.tsv")), "test", task))
+        return examples
+
+    def _create_examples(self, lines, set_type, task):
+        """Creates examples for the training, dev and test sets."""
+
+        if task == "CoLA":
+            task_prefix = "cola: "
+            examples = []
+            for (i, line) in enumerate(lines):
+                if i == 0:
+                    continue
+                guid = "%s-%s" % (set_type, i)
+                text_a = task_prefix + line[3]
+                text_b = ""
+                label = None if set_type == "test" else line[1]
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+            return examples
+            
+        if task == "SST-2":
+            task_prefix = "sst: "
+            examples = []
+            for (i, line) in enumerate(lines):
+                if i == 0:
+                    continue
+                guid = "%s-%s" % (set_type, i)
+                text_a = task_prefix + line[0]
+                text_b = ""
+                label = None if set_type == "test" else line[1]
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+            return examples
 
 
 def convert_examples_to_features(
@@ -274,9 +331,9 @@ def convert_examples_to_features(
     if task is not None:
         print (task)
         processor = processors[task]()
-        if label_list is None:
-            label_list = processor.get_labels()
-            logger.info("Using label list %s for task %s" % (label_list, task))
+        #if label_list is None:
+        #    label_list = processor.get_labels()
+        #    logger.info("Using label list %s for task %s" % (label_list, task))
         if output_mode is None:
             output_mode = T5_glue_output_modes[task]
             logger.info("Using output mode %s for task %s" % (output_mode, task))
@@ -349,16 +406,19 @@ def convert_examples_to_features(
 T5_glue_tasks_num_labels = {
     "sst-2": 2,
     "cola": 2,
+    "combined": 2
 }
 
 processors = {
     "sst-2": SST2Processor,
     "cola": CoLAProcessor,
+    "combined": CombinedProcessor,
 }
 
 T5_glue_output_modes = {
     "sst-2": "classification",
     "cola":  "classification",
+    "combined": "classification",
 }
 
 def simple_accuracy(preds, labels):
